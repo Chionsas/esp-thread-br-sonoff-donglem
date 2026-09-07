@@ -35,6 +35,7 @@ jobs:
       - name: Create merged flash image
         shell: bash
         run: |
+          source /opt/esp/idf/export.sh
           python3 tools/release/merge_dongle_m_image.py \
             examples/basic_thread_border_router/build-sonoff-dongle-m \
             --output artifacts/sonoff-dongle-m-otbr-ci.bin
