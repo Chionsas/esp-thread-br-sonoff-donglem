@@ -1,306 +1,322 @@
 # Sonoff Dongle-M Upstream Migration
 
-## Recorded revisions
+This document records the important engineering decisions behind migrating the original Sonoff Dongle-M OpenThread Border Router proof-of-concept to the current upstream-based implementation.
 
-- Development branch: `codex/donglem-network-led`
-- Network/LED milestone source commit: `3ffd86d1db9e03dc69fa9fa93df447484403af51` (work started from this clean baseline)
-- Stage 1 firmware source commit: `ddc0ccef3f5dbf7b794bd5000d4a9d335cab845` (hardware-validated rebased build, 2026-09-05)
-- Previous upstream base: `ff0d1e3cfd661e146963174c3886a6d32b911b6b`
-- Current upstream baseline used: `0bad9f1f69cebe2e2ab768bbc6f71769a3661e33`
-- Legacy donor (`main` and `legacy/current-working`): `0a1c04447762d31abd7acd8ff28dcc810f041e19`
-- Legacy upstream ancestor: `b8bffd291b8608533a20c7a2406e1b493d953bce`
-- Toolchain: ESP-IDF v5.5.4
+It is intended as a reference for future maintenance and upstream updates. Installation and user documentation belongs in the main `README.md`.
 
-The Dongle-M patchset was rebased onto current `upstream/main` without source
-conflicts. The four absorbed upstream commits are `325e0c6` (Web UI
-configuration guards), `78c272f` (IPv6 Web UI and mDNS updates), `20121cf`
-(M5Stack Web UI hostname updates), and `20d0d57` (mDNS hostname documentation).
-These modern upstream Web UI changes were preserved; no legacy UI was ported.
+---
 
-## Stage 1 hardware-profile decision
+## Baseline
 
-Current upstream already provides the `ESP_BR_BOARD_TYPE` Kconfig choice. The Dongle-M is implemented as `CONFIG_ESP_BR_BOARD_SONOFF_DONGLE_M` within that architecture, with board facts in Kconfig and compile-time guards in `esp_br_board.c`.
+The current implementation was rebuilt against Espressif's `esp-thread-br` rather than continuing to modify the original proof-of-concept.
 
-The profile selects a classic ESP32 host and records:
+- **Upstream:** Espressif `esp-thread-br`
+- **Upstream baseline:** `0bad9f1f69cebe2e2ab768bbc6f71769a3661e33`
+- **ESP-IDF:** v5.5.4
+- **Legacy Dongle-M reference:** `0a1c04447762d31abd7acd8ff28dcc810f041e19`
 
-- 16 MB DIO flash at 40 MHz;
-- stock MG24 Spinel UART on UART1, host RX GPIO13, host TX GPIO17, 115200 8N1 without flow control;
-- MG24 reset GPIO12 and control/mute GPIO15, defined but not manipulated;
-- IP101GA on the ESP32's fixed RMII pins, external clock GPIO0, MDC GPIO23, MDIO GPIO18, reset GPIO5, PHY address 1;
-- RGB red GPIO4, green GPIO14, blue GPIO2, with active-high output handled by the separate status-policy component.
+The migration retains the current upstream architecture and Web UI wherever practical. The legacy custom Web UI was not ported.
 
-The donor describes Ethernet as using the default classic-ESP32 RMII wiring. ESP-IDF v5.5.4 fixes the RMII data signals to TX_EN GPIO21, TXD0 GPIO19, TXD1 GPIO22, RXD0 GPIO25, RXD1 GPIO26, and CRS_DV GPIO27. The donor's remaining Ethernet settings came from ESP-IDF defaults and are now explicit in the profile.
+The main objective is to keep Dongle-M-specific changes isolated so future Espressif updates can be adopted without repeatedly rebuilding a heavily modified fork.
 
-## Stock RCP compatibility
+---
 
-The verified stock RCP reports radio capabilities `0x00ff` and does not report `RX_ON_WHEN_IDLE`. ESP-IDF v5.5.4 exposes the supported `CONFIG_OPENTHREAD_RX_ON_WHEN_IDLE` switch. Setting it to `n` removes that capability from the host's required mask passed to `RadioSpinel::Init`; it does not change or fake the RCP capability response.
+## Board support
 
-Automatic RCP update is disabled at Kconfig and enforced by a profile compile-time error. The Stage 1 partition table has no `rcp_fw` partition.
+Current upstream provides the `ESP_BR_BOARD_TYPE` Kconfig architecture. The Dongle-M is implemented within this as:
+
+`CONFIG_ESP_BR_BOARD_SONOFF_DONGLE_M`
+
+Hardware-specific configuration is kept in the board profile and Dongle-M-specific components rather than being scattered through generic OTBR code.
+
+Non-Dongle builds retain the normal upstream paths.
+
+### ESP32
+
+Validated on the tested Dongle-M:
+
+- ESP32-D0WDQ2-V3, revision 3.1
+- 16 MB flash
+- DIO, 40 MHz
+
+### EFR32MG24 RCP UART
+
+| Function | ESP32 GPIO |
+| --- | ---: |
+| RX | GPIO13 |
+| TX | GPIO17 |
+| Reset-related | GPIO12 |
+| Control/mute-related | GPIO15 |
+
+UART configuration is **115200 baud, 8N1, no flow control**.
+
+GPIO12 and GPIO15 are defined by the board profile but are not currently used to replace or update the MG24 firmware.
+
+### Ethernet
+
+The Dongle-M uses an **IP101GA** PHY over the classic ESP32 RMII interface.
+
+| Function | GPIO / value |
+| --- | ---: |
+| RMII clock | GPIO0 |
+| MDC | GPIO23 |
+| MDIO | GPIO18 |
+| PHY reset | GPIO5 |
+| PHY address | 1 |
+
+The fixed classic-ESP32 RMII signals are TX_EN GPIO21, TXD0 GPIO19, TXD1 GPIO22, RXD0 GPIO25, RXD1 GPIO26 and CRS_DV GPIO27.
+
+### RGB LED
+
+| Colour | GPIO |
+| --- | ---: |
+| Red | GPIO4 |
+| Green | GPIO14 |
+| Blue | GPIO2 |
+
+The RGB channels are **active-high** and driven using ESP-IDF LEDC PWM.
+
+The current policy provides:
+
+- Red → Green → Blue boot self-test
+- Blue for Ethernet
+- Orange for Wi-Fi
+- Purple for provisioning/recovery SoftAP
+- Short green Thread-attached pulse
+- Short red Thread-detached/disabled pulse
+
+---
+
+## Stock MG24 RCP compatibility
+
+The current supported radio firmware is the **stock Sonoff Thread RCP**, installed using the original Sonoff firmware before replacing the ESP32 firmware.
+
+The verified RCP communicates using Spinel over UART at 115200 8N1 with no flow control and reports radio capabilities `0x00ff`.
+
+It does not advertise `RX_ON_WHEN_IDLE`.
+
+ESP-IDF v5.5.4 exposes `CONFIG_OPENTHREAD_RX_ON_WHEN_IDLE`. This requirement is disabled for the Dongle-M profile so the host does not require a capability the stock RCP does not advertise.
+
+This changes only the host's required capability mask; it does not modify or fake the RCP's reported capabilities.
+
+Automatic RCP update is deliberately disabled. The current partition layout contains no `rcp_fw` partition and the merged release image contains **no MG24 firmware**.
+
+The stock Sonoff RCP therefore remains the known-good baseline until replacement RCP firmware and a safe recovery/update process have been independently validated.
+
+---
 
 ## Partition layout
 
-The Dongle-M layout preserves upstream OTA operation while using the 16 MB device safely:
+The current Dongle-M partition layout is:
 
 | Partition | Offset | Size |
 | --- | ---: | ---: |
-| NVS | 0x9000 | 24 KiB |
-| OTA data | 0xf000 | 8 KiB |
-| PHY init | 0x11000 | 4 KiB |
-| OTA 0 | 0x20000 | 3 MiB |
-| OTA 1 | 0x320000 | 3 MiB |
-| Web storage | 0x620000 | 512 KiB |
-
-Unused flash is deliberately left unallocated for later migration stages. No space is assigned to an RCP image in this milestone.
-
-## Clean build evidence
-
-From `examples/basic_thread_border_router`:
-
-```sh
-idf.py -B build-sonoff-dongle-m \
-  -D SDKCONFIG=sdkconfig.sonoff_dongle_m \
-  -D SDKCONFIG_DEFAULTS=sdkconfig.defaults.sonoff_dongle_m \
-  fullclean
+| NVS | `0x9000` | 24 KiB |
+| OTA data | `0xf000` | 8 KiB |
+| PHY init | `0x11000` | 4 KiB |
+| OTA 0 | `0x20000` | 3 MiB |
+| OTA 1 | `0x320000` | 3 MiB |
+| Web storage | `0x620000` | 512 KiB |
 
-idf.py -B build-sonoff-dongle-m \
-  -D SDKCONFIG=sdkconfig.sonoff_dongle_m \
-  -D SDKCONFIG_DEFAULTS=sdkconfig.defaults.sonoff_dongle_m \
-  build
-```
+The layout preserves upstream OTA support while using the Dongle-M's 16 MB flash.
 
-Result: SUCCESS, 1424/1424 targets. The application is `0x132700` bytes with 60% of the smallest app partition free.
+No partition is currently allocated for MG24 firmware.
 
-Warnings are limited to the two pre-existing CMake minimum-version deprecations in the project and managed esp-serial-flasher CMake files. There were no new compiler warnings.
+For builds and release packaging, the flash metadata generated by ESP-IDF is authoritative rather than the offsets documented here.
 
-The rebased hardware-test bundle is generated locally at
-`artifacts/sonoff-dongle-m-rebased-488c888/`.
+---
 
-## Legacy delta classification
+## OpenThread startup
 
-- Hardware-required: classic ESP32 target, 16 MB flash, stock-MG24 UART, IP101GA RMII, RGB GPIOs, and MG24 control GPIO definitions. Reimplemented in this milestone.
-- Connectivity-required: Ethernet-first, saved-Wi-Fi fallback, bounded recovery SoftAP, NVS failure tracking, and deterministic per-boot backbone selection. Implemented and hardware validated in this milestone.
-- Product behavior: RGB self-test, Ethernet/Wi-Fi/SoftAP base colors, and attached/detached Thread pulse policy. Implemented and hardware validated in this milestone.
-- Web UI/UX and dataset handling: deferred; no legacy frontend files were copied.
-- Diagnostic: RCP capability/version display. Deferred to Stage 2.
-- Obsolete/superseded: legacy hard-coded generic-file UART values and monolithic frontend architecture. Not ported.
-- Later-stage RCP work: replacement firmware and automatic MG24 flashing. Explicitly excluded.
+The infrastructure interface must be selected before OpenThread is initialised.
 
-## Network and LED milestone
+ESP-IDF requires `esp_openthread_set_backbone_netif()` to run before `esp_openthread_init()`, so the Dongle-M determines its Ethernet/Wi-Fi backbone first and then starts OpenThread using that interface.
 
-This milestone is based on upstream `0bad9f1f69cebe2e2ab768bbc6f71769a3661e33`,
-ESP-IDF v5.5.4, and legacy donor reference `0a1c04447762d31abd7acd8ff28dcc810f041e19`.
-The implementation is isolated behind `CONFIG_ESP_BR_BOARD_SONOFF_DONGLE_M`;
-non-Dongle builds retain the upstream launch path.
+The corrected startup path also maintains one matching OpenThread lock scope through Border Router initialisation, dataset handling and `esp_openthread_auto_start()`.
 
-The Dongle-M startup policy is:
+Both behaviours were established during hardware testing and are retained in the current implementation.
 
-1. Start Ethernet and wait up to `CONFIG_ESP_BR_DONGLE_M_ETHERNET_WAIT_MS` (10 s by default).
-2. If Ethernet has an IP, select `ETH_DEF` and lock that pointer as the OpenThread backbone.
-3. Otherwise use saved Wi-Fi credentials, if present, and wait up to 12 s by default.
-4. If no credentials exist, or the saved connection repeatedly fails, use the current upstream Web UI SoftAP for a bounded 3-minute provisioning window.
-5. Reboot after an unsuccessful bounded attempt; a successful Wi-Fi connection resets the failure count.
+---
 
-The NVS namespace is `br`, with `fail_count` (`u8`) and `last_ssid` keys.
-Changing the configured SSID resets the failure count, and the recovery threshold
-is five failed boots by default. The selected backbone is authoritative for that
-boot; a later interface IP event does not replace it. Automatic RCP update and
-RCP partition changes remain excluded.
+## Network policy
 
-The RGB policy is in a separate Dongle-M component. It performs a red/green/blue
-self-test, shows blue for Ethernet, orange for Wi-Fi, and purple for SoftAP, then
-pulses green when Thread is attached or red when detached. The detached pulse is
-suppressed for 15 seconds after OpenThread becomes ready. GPIO definitions remain
-in the board profile and the policy timing is Kconfig-configurable.
+The Dongle-M uses deterministic **Ethernet-first** infrastructure selection:
 
-## OpenThread startup lifecycle correction
+1. Start Ethernet and wait approximately 10 seconds for usable connectivity.
+2. If successful, use Ethernet as the OpenThread backbone.
+3. Otherwise attempt saved Wi-Fi for approximately 12 seconds.
+4. If no Wi-Fi credentials exist, expose the first-time provisioning SoftAP.
+5. After repeated saved-Wi-Fi failures, expose the recovery SoftAP.
 
-Hardware testing of the Wi-Fi path exposed a reproducible assertion after
-`esp_openthread_border_router_init()`. The Dongle-M path released the OpenThread
-lock immediately after border-router initialization and then released it again
-after `esp_openthread_auto_start()`. The second release occurred in the
-`ot_br_init` task without owning the task-switching lock, matching the IDF
-assertion. The corrected path keeps one `esp_openthread_lock_acquire()` scope
-through border-router initialization, dataset access, and `auto_start()`, then
-performs one matching release.
+The Wi-Fi recovery threshold is five failed boots. The recovery SoftAP is available for approximately three minutes before normal retry behaviour resumes.
 
-ESP-IDF v5.5.4 also documents that `esp_openthread_set_backbone_netif()` must
-run before `esp_openthread_init()`. Since Dongle-M network selection may wait for
-Ethernet, Wi-Fi, or provisioning, the corrected launch path selects the one
-authoritative backbone before `esp_openthread_start()`, registers it, and then
-starts OpenThread. No runtime failover, provisioning-policy, or RCP change was
-made.
+Successful Wi-Fi connection or changing the configured SSID resets the Wi-Fi failure history. Ethernet success does not reset it.
 
-## Hardware status and next gate
+The selected infrastructure interface remains authoritative for that boot.
 
-**STAGE 1 HARDWARE VALIDATION: PASSED**
+---
 
-Physical validation was completed on 2026-09-04 using the pre-rebase Stage 1
-image. The real device verified the classic ESP32 rev 3.1 host, 16 MB DIO/40
-MHz flash, UART1 GPIO13/GPIO17 at 115200 8N1 without flow control, stock MG24
-Spinel/OpenThread startup and attachment, IP101GA RMII Ethernet with DHCP and
-IPv6, current upstream Web UI, dataset creation, border routing, NAT64, and
-Leader state. No panic, watchdog, reboot loop, or Spinel framing/timeout error
-was observed.
+## Runtime infrastructure recovery
 
-The rebased build at source HEAD `ddc0ccef3f5dbf7b794bd5000d4a9d335cab845` was subsequently validated on real Sonoff Dongle-M hardware. The validation confirmed classic ESP32 boot, 16 MB DIO/40 MHz flash, the Dongle-M board profile, stock MG24 Spinel/OpenThread operation over UART1 GPIO13/GPIO17 at 115200 8N1 without flow control, supported `RX_ON_WHEN_IDLE` compatibility, Ethernet/DHCP/IPv6/mDNS, current upstream Web UI, NAT64, and restoration of saved Thread state. No panic, reboot loop, or RCP framing errors were observed.
+Live replacement of the OpenThread backbone was investigated but deliberately not implemented.
 
-The corrected network/LED build was validated on real Dongle-M hardware. The
-validation covered Ethernet-first selection, saved-Wi-Fi fallback, bounded
-SoftAP recovery, backbone lock, active-high RGB indications, controlled
-Ethernet/Wi-Fi recovery reboot behavior, and Thread status timing. The stock
-MG24 remained the supported RCP baseline; no RCP firmware was updated.
+OpenThread core can reinitialise Border Routing against another infrastructure index, but ESP-IDF v5.5.4 does not expose a complete public operation to atomically rebind the Espressif backbone netif and all dependent platform services.
 
-The stock-RCP baseline is now the known-good starting point for replacement MG24 RCP investigation. Hardware tests for replacement firmware remain **PENDING HARDWARE VALIDATION**.
+Partially changing the interface risks inconsistent state across services such as UDP bindings, NAT64/DNS64, mDNS, RA/ND and routing.
 
-## Runtime backbone failover investigation (2026-09-06)
+The Dongle-M therefore uses a **controlled reboot** for infrastructure recovery rather than manipulating private Espressif state.
 
-Investigation only: no runtime source, RCP, LED, provisioning, or firmware artifact changed. Audit inputs were codex/donglem-network-led at 7c79d932aafd22b77b88eafbe6b57dabb64a9103, upstream/main at 0bad9f1f69cebe2e2ab768bbc6f71769a3661e33, and ESP-IDF v5.5.4 at 735507283d5b2f9fb363a1901172dbd9e847945d.
+### Ethernet → Wi-Fi
 
-### Sources and lifecycle
+When Ethernet is active:
 
-Inspected app_main; launch_openthread_border_router; dongle_m_network; ESP-IDF esp_openthread.cpp, esp_openthread_netif_glue.c, esp_openthread_udp.c, esp_openthread_border_router.h, esp_openthread_lock.h, and the shipped libopenthread_br.a; OpenThread border_routing.h, border_routing_api.cpp, infra_if.cpp; the ESP-IDF ot_examples_br and protocol_examples_common Wi-Fi/Ethernet helpers; and README_MDNS.md.
+- loss is confirmed for approximately **5 seconds**;
+- a brief interruption is ignored if Ethernet recovers;
+- if Ethernet remains unavailable and saved Wi-Fi exists, the device performs a controlled reboot;
+- normal startup then selects Wi-Fi;
+- without saved Wi-Fi, the device remains running rather than entering a reboot loop.
 
-The lifecycle is: app_main initializes NVS, SPIFFS, esp-netif, the event loop, mDNS, and Web UI. The Dongle-M launcher selects and waits for the backbone, calls esp_openthread_set_backbone_netif before esp_openthread_start, and the ESP-IDF worker initializes OpenThread, attaches the Thread netif, and enters the main loop. The ot_br_init task acquires the normal OpenThread lock, calls esp_openthread_border_router_init, loads/creates the dataset, and calls esp_openthread_auto_start, which enables IPv6 and Thread but does not select the backbone.
+### Wi-Fi → Ethernet
 
-### Findings
+When Wi-Fi is active:
 
-esp_openthread_set_backbone_netif has an explicit contract: it must be called before esp_openthread_init. The public ESP-IDF API has no post-init backbone setter or complete rebind operation. The ESP glue also reads esp_openthread_get_backbone_netif for UDP binding, host-interface classification, link-layer lookup, and infrastructure traffic. Changing only an OpenThread interface index would leave platform state inconsistent. Calling the setter after start, Border Router init, or Thread attachment is unsupported; Border Router deinit does not make the pre-init contract valid.
+- Ethernet must obtain usable connectivity;
+- Ethernet must remain continuously available for **30 seconds**;
+- loss during that period cancels the timer;
+- after 30 seconds of stable Ethernet, the device performs a controlled reboot;
+- normal startup restores preferred Ethernet operation.
 
-OpenThread core does expose a related facility. In this revision, otBorderRoutingInit(instance, if_index, is_running) is documented as re-initializable: changing the index stops Border Routing and mDNS-related operations on the old interface before restarting on the new one. otBorderRoutingGetInfraIfInfo reports the configured index and running state, while otPlatInfraIfStateChanged updates running state only for that index. This cannot safely be used by the current application alone because the Espressif netif pointer and OpenThread index cannot be changed atomically through public APIs.
+The Thread dataset, Wi-Fi configuration and MG24 firmware are not deliberately altered by these recovery reboots.
 
-Conclusion: live backbone replacement is NOT SUPPORTED by the current public Espressif ESP-IDF integration as an application-only operation. The core API supports infrastructure-manager reinitialization, but the ESP wrapper does not expose the complete safe platform rebind. No checked-out Espressif example implements Ethernet/Wi-Fi backbone replacement at runtime.
+This approach has been hardware validated in both directions.
 
-ESP-IDF provides separate health events: Ethernet ETH_EVENT_CONNECTED/DISCONNECTED and IP_EVENT_ETH_GOT_IP/LOST_IP; Wi-Fi WIFI_EVENT_STA_CONNECTED/DISCONNECTED and IP_EVENT_STA_GOT_IP/LOST_IP. Future policy should require link/association and usable IP, including required IPv6 state, with timers. The OpenThread infra state signal only describes the selected index and cannot select another ESP netif.
+---
 
-Wi-Fi standby is feasible at the classic ESP32 esp-netif/Wi-Fi level, but is unproven for this OTBR integration. The current app does not associate Wi-Fi when Ethernet wins, and no checked-in Espressif OTBR example validates standby. It requires a hardware gate for coexistence, route priority, IPv6, mDNS, resource use, and interface classification.
+## Release packaging
 
-### Recommended future architecture
+The public release format is a single merged **ESP32 host image**, flashed at offset `0x0`.
 
-Retain boot-only deterministic selection until a reviewed Espressif-supported platform rebind API exists. That API should atomically:
+The repository tool:
 
-1. confirm candidate link, IPv4, and required IPv6;
-2. update the ESP backbone-netif pointer used by platform callbacks;
-3. call otBorderRoutingInit(instance, new_if_index, true) in OpenThread task context;
-4. let OpenThread stop old-interface BR/mDNS activity and restart on the new index; and
-5. refresh or restart host-side NAT64, DNS64, mDNS, RA, ND, route, and service bindings outside OpenThread.
+`tools/release/merge_dongle_m_image.py`
 
-Callbacks should enqueue observations only. One state-machine task should hold esp_openthread_lock_acquire(portMAX_DELAY) for ordinary OT calls. Use the task-switching lock only when the exact operation yields into lwIP, and release/reacquire it exactly as the ESP-IDF port does. Never release it from another task; incorrect ownership asserts/crashes.
+reads ESP-IDF's generated `flasher_args.json` and uses it as the authoritative source for the images, offsets and flash configuration.
 
-A full esp_openthread_stop/start cycle is not a suitable first solution: ESP-IDF refuses to stop while Thread is active and the v5.5.4 radio path reports RCP deinitialization as unsupported. A correct in-process rebind should preserve Thread radio, dataset, RCP, and attachment because the OpenThread index-switch lifecycle is scoped to infrastructure services. This is a design expectation, not Dongle-M hardware evidence.
+The tool:
 
-Validate RA/RS, ND, on-link/OMR routes, discovered prefixes, NAT64 prefix and sockets, DNS64 reachability, OpenThread mDNS/DNS-SD, and the separate ESP-IDF mDNS responder. If atomic rebind cannot be obtained, retain boot-only selection and report infrastructure loss. Do not call the undocumented post-init setter or partially update the OT index.
+1. verifies that the ESP-IDF-listed images exist;
+2. refuses to include an image identified as RCP firmware;
+3. invokes `esptool merge_bin` using the generated flash settings;
+4. creates one ESP32 image for flashing at `0x0`;
+5. writes a matching SHA-256 checksum.
 
-### Proposed state machine and acceptance tests
+The merged package contains:
 
-Not implemented:
+- bootloader
+- partition table
+- initial OTA data
+- `esp_ot_br`
+- `web_storage`
 
-    ETH_ACTIVE -- ETH unusable 5-10 s --> WIFI_CANDIDATE
-    WIFI_CANDIDATE -- Wi-Fi usable --> WIFI_ACTIVE
-    WIFI_CANDIDATE -- bounded timeout --> INFRA_DEGRADED (retain Thread)
-    WIFI_ACTIVE -- unusable --> ETH_CANDIDATE or INFRA_DEGRADED
-    ETH_CANDIDATE -- healthy 20-30 s --> ETH_ACTIVE
+It contains **no EFR32MG24 firmware**.
 
-Maintain one active_backbone; change the LED only after successful rebind and ignore late non-selected events except as health observations. Do not immediately preempt Wi-Fi when Ethernet returns.
+Generated images remain beneath the ignored `artifacts/` directory and are not committed.
 
-Later hardware tests must cover both promotion directions, standby disabled and enabled, link flapping, DHCP renewal, IPv6-only loss, and both interfaces unavailable. Verify LED, IPv4/IPv6, RA/ND, NAT64, DNS64, mDNS, routes, no stale bindings or duplicate advertisements, no lock/watchdog/RCP failure, and continued Thread attachment. Reboot after each path and verify dataset and Wi-Fi persistence.
+---
 
-Conclusion: DO NOT implement runtime failover yet. Obtain or design a reviewed Espressif platform-level rebind API and test it independently from LED and provisioning policy.
+## Hardware validation
 
-## Runtime infrastructure recovery implementation (2026-09-06)
+The current upstream-based implementation has been tested on physical Sonoff Dongle-M hardware.
 
-The follow-up implementation selected **Option C: Dongle-M-only reboot-based
-recovery**. The earlier live-switch conclusion remains valid: there is no public
-ESP-IDF API or Kconfig option that atomically changes the active infrastructure
-netif after `esp_openthread_init`. OpenThread core can reinitialize Border
-Routing for another interface index while retaining the instance, dataset,
-radio, and attachment, but the public Espressif layer cannot update its cached
-netif and all dependent UDP, NAT64/DNS64, mDNS, RA, ND, route, and service state
-as one supported operation. The missing functionality is therefore a new
-platform-level lifecycle, not a one-line enablement. No private state, internal
-pointer mutation, OpenThread patch, or generic upstream behavior was added.
+Validated areas include:
 
-### Legacy behavior used as policy evidence
+- ESP32 board profile and 16 MB flash
+- stock MG24 Spinel communication and OpenThread operation
+- IP101GA Ethernet
+- Wi-Fi
+- first-time provisioning
+- recovery provisioning
+- current upstream Web UI
+- Thread network creation/joining and saved dataset restoration
+- Border Routing and NAT64
+- Home Assistant / Matter operation
+- active-high RGB status behaviour
+- Ethernet-first startup
+- Ethernet → Wi-Fi recovery
+- Wi-Fi → Ethernet recovery
+- Thread reattachment following controlled reboot
 
-The donor at `0a1c04447762d31abd7acd8ff28dcc810f041e19` implemented only
-deterministic boot selection. It tried Ethernet for about 10 seconds, then saved
-Wi-Fi for about 12 seconds, and locked the first successful backbone. Wi-Fi was
-not started or associated when Ethernet won; Ethernet remained running when
-Wi-Fi won. Late Ethernet/Wi-Fi events did not switch the locked backbone. The
-legacy event handler logged Wi-Fi disconnects but had no interface-health state
-machine, runtime Ethernet-loss action, delayed recovery reboot, or Ethernet
-return stability timer.
+### Merged image validation
 
-Failed Wi-Fi boots incremented the NVS `br/fail_count`; successful Wi-Fi reset
-it, and changing the saved SSID reset it. At five failures the donor exposed a
-bounded three-minute recovery SoftAP, then rebooted to retry if credentials were
-not replaced. No saved credentials entered first-time provisioning. The new
-runtime policy preserves those semantics and does not treat Ethernet success as
-Wi-Fi recovery.
+The single ESP32 image generated by `tools/release/merge_dongle_m_image.py` has also been hardware validated by flashing it at `0x0`.
 
-### Implemented state machine
+The test covered:
 
-The event callbacks only record Ethernet link and IPv4 state and wake one
-Dongle-M policy task. Monitoring starts after Border Routing and OpenThread
-auto-start complete. Ethernet is considered usable only while both link and its
-DHCP IPv4 address are present.
+1. clean boot;
+2. first-time SoftAP;
+3. Wi-Fi commissioning;
+4. applying an existing Thread Active Dataset;
+5. joining the Thread network as a router;
+6. connecting Ethernet while running on Wi-Fi;
+7. the 30-second Ethernet stability timer;
+8. controlled reboot;
+9. successful restart using Ethernet.
 
-    ETH_ACTIVE + Ethernet unusable
-      -> confirm for CONFIG_ESP_BR_DONGLE_M_ETHERNET_FAILURE_CONFIRM_MS (5000 ms)
-      -> recovered: cancel, remain ETH_ACTIVE
-      -> still down + saved Wi-Fi: mark reboot pending, controlled esp_restart()
-      -> still down + no saved Wi-Fi: log once, remain running without a reboot loop
+The metadata-driven merged-image path is therefore considered **hardware validated**.
 
-    WIFI_ACTIVE + Ethernet usable
-      -> require CONFIG_ESP_BR_DONGLE_M_ETHERNET_RECOVERY_STABLE_MS (30000 ms)
-      -> Ethernet becomes unusable: cancel, remain WIFI_ACTIVE
-      -> continuously usable: mark reboot pending, controlled esp_restart()
+---
 
-After reboot the existing deterministic boot policy chooses Ethernet first or
-falls back to saved Wi-Fi. A single reboot-pending flag serializes each action;
-the five-second failure confirmation, 30-second Ethernet stability requirement,
-and no-alternate hold state prevent oscillation and persistent reboot loops.
-The active-interface LED remains unchanged until reboot, then normal boot
-selection sets blue for Ethernet or orange for Wi-Fi. No intermediate color was
-added.
+## Current status
 
-This recovery intentionally restarts the local OTBR and temporarily detaches it.
-It does not erase or replace the Thread dataset, Wi-Fi credentials, NVS failure
-history, partition layout, or MG24 firmware. Normal saved-dataset restoration
-and Thread reattachment are expected after boot.
+| Area | Status |
+| --- | --- |
+| Upstream-based ESP32 OTBR | **Hardware validated** |
+| Dongle-M board profile | **Hardware validated** |
+| Ethernet / Wi-Fi policy | **Hardware validated** |
+| Runtime recovery | **Hardware validated** |
+| RGB status | **Hardware validated** |
+| Merged ESP32 release image | **Hardware validated** |
+| Stock Sonoff MG24 RCP | **Supported / hardware validated** |
+| Replacement MG24 RCP | **Future work / not validated** |
+| Automatic MG24 update | **Disabled** |
 
-Hardware validation was completed for Ethernet-to-Wi-Fi recovery after five
-seconds, cancellation on a sub-five-second transient, Wi-Fi-to-Ethernet recovery
-only after 30 stable seconds, cancellation during Ethernet flapping, no reboot
-when no saved Wi-Fi alternative exists, preserved LED meaning before and after
-reboot, restored Thread dataset/attachment, and router operation. No reboot
-loop, factory reset, RCP update, or new lock/watchdog/RCP error was observed.
+---
 
-## Current migration path
+## Future RCP work
 
-1. **Stage 1 — Current upstream plus Dongle-M board support:** **HARDWARE VALIDATED**.
-2. **Stage 2 — Replacement EFR32MG24 OpenThread RCP investigation and A/B test:** **CURRENT**.
-3. **Stage 3 — Sleepy-end-device latency A/B test** using stock and replacement RCP firmware.
-4. **Stage 4 — Restore the normal upstream `RX_ON_WHEN_IDLE` requirement only if the replacement RCP genuinely advertises and supports it.**
-5. **Stage 5 — Restore Dongle-M Wi-Fi fallback and deterministic backbone selection using current upstream architecture:** **IMPLEMENTED; HARDWARE VALIDATED**.
-6. **Stage 6 — Restore Dongle-M LED status behaviour separately from networking policy:** **IMPLEMENTED; HARDWARE VALIDATED**.
-7. **Stage 7 — If proven successful, integrate the replacement RCP image and evaluate current upstream RCP update support.**
+The main remaining hardware work is a reproducible EFR32MG24 OpenThread RCP build for the Dongle-M.
 
-The current upstream Web UI remains authoritative; the legacy Web UI is not being ported wholesale.
+Before a replacement RCP can become part of the normal release process, the following must be established and hardware validated:
 
-## Release packaging milestone
+- exact MG24 target and memory configuration;
+- correct radio configuration;
+- UART configuration;
+- bootloader layout;
+- safe bootloader-entry procedure;
+- SWD/recovery access;
+- compatibility with the ESP32 OTBR host.
 
-The public release format is one merged ESP32 host image. The tracked helper
-`tools/release/merge_dongle_m_image.py` reads the current ESP-IDF-generated
-`flasher_args.json`, validates that all listed images exist and that no RCP
-image is included, then invokes esptool `merge_bin` with the generated DIO,
-40 MHz, and 16 MB settings. It writes the merged image at flash offset `0x0`
-and emits a SHA-256 checksum beside it. Generated binaries remain under the
-ignored `artifacts/` directory and are not committed.
+The longer-term goal is a known-compatible and versioned pair:
 
-The package contains the bootloader, partition table, initial OTA data,
-`esp_ot_br` application, and `web_storage`. It contains no MG24 firmware and
-does not update the RCP. The single merged ESP32 image generated by
-`tools/release/merge_dongle_m_image.py` has been hardware validated with clean
-boot, first-time SoftAP, Wi-Fi commissioning, applying an existing Thread
-Active Dataset, joining as a Thread router, Ethernet insertion, the 30-second
-Ethernet stability timer, controlled reboot, and successful return on Ethernet.
+`ESP32 OTBR firmware + EFR32MG24 RCP firmware`
+
+with a safe installation and recovery mechanism.
+
+Until then, the supported combination remains the current ESP32 OTBR firmware with the **stock Sonoff Thread RCP**.
+
+---
+
+## Upstream maintenance
+
+Future upstream updates should follow a simple gated process:
+
+1. Fetch/rebase against current Espressif upstream.
+2. Review the Dongle-M-specific delta.
+3. Build with the validated ESP-IDF toolchain.
+4. Generate the merged ESP32 image.
+5. Hardware test the generated image.
+6. Publish only after hardware validation passes.
+
+A successful compile or CI build is **not** considered hardware validation.
+
+The guiding principle is to keep the Dongle-M patchset small, isolated and maintainable while remaining as close to Espressif upstream as practical.
