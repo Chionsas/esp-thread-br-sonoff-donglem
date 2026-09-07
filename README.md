@@ -1,124 +1,146 @@
 # Sonoff Dongle-M OpenThread Border Router
 
-This repository is a Sonoff Dongle-M adaptation of Espressif's
-[esp-thread-br](https://github.com/espressif/esp-thread-br). It keeps the
-current upstream architecture and Web UI wherever practical, while adding the
-board profile and connectivity support required by the Dongle-M.
+An upstream-based OpenThread Border Router firmware for the Sonoff Dongle-M.
+The original Dongle-M proof of concept has been substantially modernised and
+rebuilt on top of Espressif's current
+[esp-thread-br](https://github.com/espressif/esp-thread-br) architecture.
 
-The firmware runs the OpenThread Border Router on the Dongle-M's ESP32 host
-and uses the onboard EFR32MG24 as a standard OpenThread Spinel Radio
-Co-Processor (RCP). It supports Ethernet, saved Wi-Fi fallback, bounded
-provisioning/recovery SoftAP operation, and Home Assistant/Matter integration.
+The ESP32 host runs the Border Router and the onboard EFR32MG24 runs the stock
+Sonoff Thread Radio Co-Processor (RCP). The result is a maintainable Dongle-M
+implementation with Ethernet, Wi-Fi provisioning/fallback, the standard
+Espressif Web UI, and Home Assistant integration.
 
-## Supported hardware
+## What has changed
 
-The validated board configuration is:
+This is intended as a maintainable successor to the old experimental port:
 
-- ESP32-D0WDQ2-V3 host with 16 MB flash;
-- EFR32MG24 RCP over UART1 at 115200 baud, 8N1, without flow control;
-- host UART RX GPIO13 and TX GPIO17;
-- IP101GA Ethernet PHY with classic ESP32 RMII:
-  - RMII clock GPIO0;
-  - MDC GPIO23, MDIO GPIO18;
-  - PHY reset GPIO5, address 1;
-- active-high PWM/LEDC RGB indicator:
-  - red GPIO4, green GPIO14, blue GPIO2.
+- rebuilt from current Espressif upstream rather than carrying a heavily modified legacy fork;
+- Dongle-M hardware support moved into board/profile and configuration areas;
+- hardware GPIO, Ethernet, UART, LED, and connectivity policy isolated from generic Espressif code;
+- the standard upstream Web UI retained;
+- updated and validated with ESP-IDF v5.5.4;
+- deterministic Ethernet-first startup with native Wi-Fi fallback and provisioning;
+- controlled infrastructure recovery that preserves Thread state across reboot;
+- correct active-high PWM RGB status indication;
+- stock onboard MG24 RCP support.
 
-GPIO12 is reset-related for the MG24, and GPIO15 is control/mute/hold-related.
-Their exact electrical timing is kept in the board profile; this firmware does
-not claim an automatic MG24 bootloader or firmware-update procedure.
+Keeping upstream as the baseline makes future rebases and upstream fixes much
+easier to adopt.
 
-The supported MG24 firmware is the stock Sonoff/OpenThread RCP baseline. Custom
-or bundled MG24 RCP firmware is future development and is not required for the
-current Dongle-M build.
+## Features
 
-## Validated behavior
+- OpenThread Border Router on the ESP32 host.
+- Stock EFR32MG24 Spinel RCP over UART.
+- IP101GA Ethernet with Ethernet-first selection.
+- Saved Wi-Fi fallback, first-time SoftAP provisioning, and bounded recovery SoftAP.
+- Current Espressif/OpenThread Web UI.
+- Persistent Thread dataset and network state.
+- Home Assistant OpenThread Border Router and Thread integration support.
+- One merged ESP32 release image for simple flashing.
 
-The current upstream-based build has been validated on real Dongle-M hardware
-with ESP-IDF v5.5.4. The validated behavior includes:
+## Hardware
 
-- stock MG24 Spinel communication and OpenThread operation;
-- Ethernet startup and deterministic Ethernet-first selection;
-- saved Wi-Fi fallback and first-time SoftAP provisioning;
-- bounded recovery SoftAP behavior after repeated Wi-Fi failures;
-- Ethernet-loss recovery through a controlled reboot to Wi-Fi;
-- Wi-Fi-to-preferred-Ethernet recovery after a 30-second stability timer;
-- persistent Thread dataset and network state across reboot/failover;
-- RGB boot and interface/status indications;
-- the standard upstream OpenThread Web UI;
-- forming and joining Thread networks and real Home Assistant/Matter operation.
+The validated hardware is an ESP32-D0WDQ2-V3 host with 16 MB flash and the
+onboard EFR32MG24 RCP:
 
-The selected backbone is authoritative for each boot. The firmware does not
-silently switch the active OpenThread backbone in response to a late interface
-event.
+| Function | Dongle-M connection |
+| --- | --- |
+| RCP UART | UART1, 115200 8N1, no flow control |
+| Host UART | RX GPIO13, TX GPIO17 |
+| Ethernet PHY | IP101GA, RMII, address 1 |
+| Ethernet management | MDC GPIO23, MDIO GPIO18, reset GPIO5, clock GPIO0 |
+| RGB LED | Red GPIO4, green GPIO14, blue GPIO2 |
+
+GPIO12 and GPIO15 are defined for MG24 reset and control/hold functions. The
+current firmware does not automatically flash or update the MG24.
+
+## Network behaviour
+
+At boot, Ethernet is preferred. If it does not obtain usable connectivity, the
+firmware tries saved Wi-Fi credentials. With no saved credentials it starts the
+upstream provisioning SoftAP. Repeated saved-Wi-Fi failures lead to a bounded
+recovery SoftAP, after which normal connection attempts resume if no new
+credentials are supplied.
+
+If Ethernet is lost while Wi-Fi is available, the Dongle-M performs a
+controlled reboot so the normal Ethernet-first policy can select Wi-Fi safely.
+When Wi-Fi is active, Ethernet must remain stable for 30 seconds before a
+controlled reboot returns to preferred Ethernet. This avoids unsafe live
+OpenThread backbone rebinding, which the current Espressif integration does not
+support atomically.
+
+## LED status
+
+| State | Indication |
+| --- | --- |
+| Boot | Red → green → blue self-test |
+| Ethernet | Blue |
+| Wi-Fi | Orange |
+| Provisioning/recovery SoftAP | Purple |
+| Thread attached | Green pulse, about 200 ms every 2 s |
+| Thread detached/disabled | Red pulse, about 200 ms every 2 s, suppressed for about 15 s after Thread startup |
 
 ## Installation
 
-The intended public release format is one merged ESP32 image. When a release is
-published:
+Download the merged `sonoff-dongle-m-otbr.bin` and its `.sha256` checksum from
+GitHub Releases. Connect the Dongle-M's ESP32 USB interface, identify its serial
+port, and flash the image at address `0x0`.
 
-1. Download the merged `.bin` image from GitHub Releases.
-2. Flash it at address `0x0` with `esptool`.
-3. Reboot the Dongle-M and provision or use it through the Web UI.
+Windows PowerShell:
 
-No public release binary is currently included in this repository. Do not use a
-file from the repository as a release image unless it is explicitly published
-as a release asset.
+```powershell
+py -m esptool --chip esp32 --port COM3 --baud 460800 --before default_reset --after hard_reset write_flash 0x0 sonoff-dongle-m-otbr.bin
+```
 
-For recovery to the Sonoff firmware, use the [Sonoff Dongle
-Flasher](https://dongle.sonoff.tech/sonoff-dongle-flasher/) and follow Sonoff's
-instructions.
+Linux/macOS:
 
-### Developer multi-image flashing
+```bash
+python3 -m esptool --chip esp32 --port /dev/ttyUSB0 --baud 460800 --before default_reset --after hard_reset write_flash 0x0 sonoff-dongle-m-otbr.bin
+```
 
-The validated development layout is:
+The merged image contains the ESP32 host firmware only. It does not overwrite
+or update the onboard MG24 RCP. After flashing, connect Ethernet or use the
+provisioning network described below.
+
+### Developer / manual flashing
+
+For source builds, use the exact generated `flash_args` for that build. The
+validated host layout is:
 
 ```text
-0x1000  bootloader.bin
-0x8000  partition-table.bin
+0x1000  bootloader/bootloader.bin
+0x8000  partition_table/partition-table.bin
 0xf000  ota_data_initial.bin
 0x20000 esp_ot_br.bin
 0x620000 web_storage.bin
 ```
 
-Use the exact `flash_args` generated by the matching build rather than relying
-on these offsets for another configuration. A typical developer command is:
+Do not substitute this layout for another configuration. The generated metadata
+is the source of truth.
 
-```bash
-python -m esptool --chip esp32 --port <PORT> write-flash \
-  0x1000 build/bootloader/bootloader.bin \
-  0x8000 build/partition_table/partition-table.bin \
-  0xf000 build/ota_data_initial.bin \
-  0x20000 build/esp_ot_br.bin \
-  0x620000 build/web_storage.bin
-```
+## First boot and provisioning
 
-The exact image names and flash parameters are build-specific. The project
-uses ESP-IDF v5.5.4; developers should follow the configuration in
-`examples/basic_thread_border_router` and the generated build arguments.
+- Ethernet connected: the device selects Ethernet and shows blue.
+- Saved Wi-Fi available: Wi-Fi is selected if Ethernet is unavailable and shows orange.
+- No saved Wi-Fi: the upstream SoftAP starts for provisioning and shows purple.
+- Repeated Wi-Fi failure: bounded recovery SoftAP starts; if no replacement credentials are entered, the device retries normal startup.
 
-## Using the Border Router
+## Web UI and Thread setup
 
-After connecting through Ethernet or Wi-Fi, open the device IP address in a
-browser. The upstream Web UI provides Thread network discovery, formation,
-joining, dataset management, network properties, and topology information.
+Open the device IP address in a browser. Use the upstream Espressif/OpenThread
+Web UI to inspect the device and form or join a Thread network using the
+controls exposed by that release. The selected dataset and Thread state persist
+across normal reboots and infrastructure recovery.
 
-In Home Assistant:
+## Home Assistant
 
-1. Add the OpenThread Border Router integration using
-   `http://<dongle-ip-address>`.
-2. Add the Thread integration and select the Dongle-M as the preferred Thread
-   network when appropriate.
+1. Add the OpenThread Border Router integration using `http://<dongle-ip-address>`.
+2. Add the Thread integration.
+3. Select the Dongle-M as the preferred Thread network when appropriate.
 
-## Development
+## Building from source
 
-The current upstream baseline is recorded in
-[docs/sonoff-dongle-m-migration.md](docs/sonoff-dongle-m-migration.md), together
-with the ESP-IDF version, board decisions, build evidence, hardware
-observations, and deferred work. The migration intentionally keeps the
-Dongle-M changes small and isolated from generic upstream code.
-
-Build from the example directory with the ESP-IDF v5.5.4 environment enabled:
+Use ESP-IDF v5.5.4 and the Dongle-M defaults:
 
 ```bash
 cd examples/basic_thread_border_router
@@ -128,6 +150,34 @@ idf.py -B build-sonoff-dongle-m \
   build
 ```
 
-Generated build output and hardware-test bundles under `artifacts/` are local
-files and are intentionally not tracked in Git. Custom RCP firmware, bundled
-RCP updates, and automatic MG24 flashing remain future development.
+Generate the merged release image from the resulting ESP-IDF metadata:
+
+```bash
+python3 ../../tools/release/merge_dongle_m_image.py \
+  examples/basic_thread_border_router/build-sonoff-dongle-m \
+  --output artifacts/sonoff-dongle-m-otbr.bin
+```
+
+This produces the merged image and `sonoff-dongle-m-otbr.bin.sha256`. The
+script consumes `flasher_args.json`, uses its flash map and DIO/40 MHz/16 MB
+settings, and packages only the ESP32 host images.
+
+## MG24 RCP status and future work
+
+The supported RCP is the stock Sonoff MG24 OpenThread RCP. A custom reproducible
+or bundled RCP is future work; the eventual goal is a reproducible host-plus-RCP
+release package without changing the current safe flashing path.
+
+## Recovery / returning to stock
+
+To return to Sonoff firmware, use the official [Sonoff Dongle
+Flasher](https://dongle.sonoff.tech/sonoff-dongle-flasher/) and follow Sonoff's
+instructions. The merged image is a raw ESP32 flash image and is not intended
+for the Sonoff Web UI firmware-update page.
+
+## Credits and upstream
+
+This project builds on Espressif's `esp-thread-br` and ESP-IDF, and on Sonoff's
+Dongle-M hardware and stock RCP firmware. See
+[docs/sonoff-dongle-m-migration.md](docs/sonoff-dongle-m-migration.md) for
+upstream revisions, build evidence, hardware validation, and deferred work.

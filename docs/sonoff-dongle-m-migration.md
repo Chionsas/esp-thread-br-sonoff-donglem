@@ -286,3 +286,18 @@ loop, factory reset, RCP update, or new lock/watchdog/RCP error was observed.
 7. **Stage 7 — If proven successful, integrate the replacement RCP image and evaluate current upstream RCP update support.**
 
 The current upstream Web UI remains authoritative; the legacy Web UI is not being ported wholesale.
+
+## Release packaging milestone
+
+The public release format is one merged ESP32 host image. The tracked helper
+`tools/release/merge_dongle_m_image.py` reads the current ESP-IDF-generated
+`flasher_args.json`, validates that all listed images exist and that no RCP
+image is included, then invokes esptool `merge_bin` with the generated DIO,
+40 MHz, and 16 MB settings. It writes the merged image at flash offset `0x0`
+and emits a SHA-256 checksum beside it. Generated binaries remain under the
+ignored `artifacts/` directory and are not committed.
+
+The package contains the bootloader, partition table, initial OTA data,
+`esp_ot_br` application, and `web_storage`. It contains no MG24 firmware and
+does not update the RCP. Hardware flashing of any newly generated release image
+remains **PENDING HARDWARE VALIDATION** unless separately reported.
