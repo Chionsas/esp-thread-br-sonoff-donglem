@@ -82,6 +82,11 @@ support atomically.
 
 ## Installation
 
+Before flashing the ESP32 host, while the Dongle-M is still running the stock
+Sonoff ESP32 firmware, select **EFR32MG24 → Operation Mode → Thread RCP Mode**.
+The current merged image updates the ESP32 host only and does not update the
+MG24 RCP.
+
 Download the merged `sonoff-dongle-m-otbr.bin` and its `.sha256` checksum from
 GitHub Releases. Connect the Dongle-M's ESP32 USB interface, identify its serial
 port, and flash the image at address `0x0`.
@@ -103,6 +108,19 @@ or update the onboard MG24 RCP. After flashing, connect Ethernet or use the
 provisioning network described below.
 
 ### Developer / manual flashing
+
+Run the following command from `examples/basic_thread_border_router`:
+
+```powershell
+py -m esptool --chip esp32 --port COM3 --baud 460800 `
+  --before default_reset --after hard_reset `
+  write_flash --flash_mode dio --flash_size 16MB --flash_freq 40m `
+  0x1000 build-sonoff-dongle-m\bootloader\bootloader.bin `
+  0x8000 build-sonoff-dongle-m\partition_table\partition-table.bin `
+  0xf000 build-sonoff-dongle-m\ota_data_initial.bin `
+  0x20000 build-sonoff-dongle-m\esp_ot_br.bin `
+  0x620000 build-sonoff-dongle-m\web_storage.bin
+```
 
 For source builds, use the exact generated `flash_args` for that build. The
 validated host layout is:
@@ -143,6 +161,10 @@ across normal reboots and infrastructure recovery.
 Use ESP-IDF v5.5.4 and the Dongle-M defaults:
 
 ```bash
+git clone https://github.com/Scoobler/esp-thread-br-sonoff-donglem.git
+cd esp-thread-br-sonoff-donglem
+git submodule update --init --recursive
+
 cd examples/basic_thread_border_router
 idf.py -B build-sonoff-dongle-m \
   -D SDKCONFIG=sdkconfig.sonoff_dongle_m \
@@ -150,10 +172,11 @@ idf.py -B build-sonoff-dongle-m \
   build
 ```
 
-Generate the merged release image from the resulting ESP-IDF metadata:
+From the repository root, generate the merged release image from the resulting
+ESP-IDF metadata:
 
 ```bash
-python3 ../../tools/release/merge_dongle_m_image.py \
+python3 tools/release/merge_dongle_m_image.py \
   examples/basic_thread_border_router/build-sonoff-dongle-m \
   --output artifacts/sonoff-dongle-m-otbr.bin
 ```
