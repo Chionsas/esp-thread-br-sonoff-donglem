@@ -25,6 +25,7 @@ jobs:
       - name: Build Dongle-M firmware
         shell: bash
         run: |
+          source /opt/esp/idf/export.sh
           cd examples/basic_thread_border_router
           idf.py -B build-sonoff-dongle-m \
             -D SDKCONFIG=sdkconfig.sonoff_dongle_m \
