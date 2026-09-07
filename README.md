@@ -1,80 +1,133 @@
-# ESP Thread Border Router SDK
+# Sonoff Dongle-M OpenThread Border Router
 
-ESP-THREAD-BR is the official Espressif Thread Border Router SDK. It supports all fundamental network features to build a [Thread Border Router](https://openthread.io/guides/border-router) (BR) and integrates rich product level features for quick productization.
+This repository is a Sonoff Dongle-M adaptation of Espressif's
+[esp-thread-br](https://github.com/espressif/esp-thread-br). It keeps the
+current upstream architecture and Web UI wherever practical, while adding the
+board profile and connectivity support required by the Dongle-M.
 
-# Software Components
+The firmware runs the OpenThread Border Router on the Dongle-M's ESP32 host
+and uses the onboard EFR32MG24 as a standard OpenThread Spinel Radio
+Co-Processor (RCP). It supports Ethernet, saved Wi-Fi fallback, bounded
+provisioning/recovery SoftAP operation, and Home Assistant/Matter integration.
 
-![esp_br_solution](docs/images/esp-thread-border-router-solution.png)
+## Supported hardware
 
-The SDK is built on top of [ESP-IDF](https://github.com/espressif/esp-idf) and [OpenThread](https://github.com/openthread/openthread). The BR implementation is provided as pre-built library in ESP-IDF.
+The validated board configuration is:
 
-# Hardware Platforms
+- ESP32-D0WDQ2-V3 host with 16 MB flash;
+- EFR32MG24 RCP over UART1 at 115200 baud, 8N1, without flow control;
+- host UART RX GPIO13 and TX GPIO17;
+- IP101GA Ethernet PHY with classic ESP32 RMII:
+  - RMII clock GPIO0;
+  - MDC GPIO23, MDIO GPIO18;
+  - PHY reset GPIO5, address 1;
+- active-high PWM/LEDC RGB indicator:
+  - red GPIO4, green GPIO14, blue GPIO2.
 
-The hardware required for a Thread BR comprises two separate SoCs:
+GPIO12 is reset-related for the MG24, and GPIO15 is control/mute/hold-related.
+Their exact electrical timing is kept in the board profile; this firmware does
+not claim an automatic MG24 bootloader or firmware-update procedure.
 
-* An ESP32 series SoC (ESP32, ESP32-C, ESP32-S, etc) loaded with ESP Thread BR and OpenThread Stack.
-* An ESP32-H 802.15.4 SoC loaded with OpenThread RCP.
+The supported MG24 firmware is the stock Sonoff/OpenThread RCP baseline. Custom
+or bundled MG24 RCP firmware is future development and is not required for the
+current Dongle-M build.
 
-## ESP Thread Border Router Board
+## Validated behavior
 
-The [ESP Thread Border Router](https://docs.espressif.com/projects/esp-thread-br/en/latest/hardware_platforms.html) board provides an integrated module of an ESP32-S3 SoC and an ESP32-H2 RCP. A Sub-Ethernet daughter board is available if an Ethernet-based Border Router is required.
+The current upstream-based build has been validated on real Dongle-M hardware
+with ESP-IDF v5.5.4. The validated behavior includes:
 
-![br_dev_kit](docs/images/esp-thread-border-router-board.png)
+- stock MG24 Spinel communication and OpenThread operation;
+- Ethernet startup and deterministic Ethernet-first selection;
+- saved Wi-Fi fallback and first-time SoftAP provisioning;
+- bounded recovery SoftAP behavior after repeated Wi-Fi failures;
+- Ethernet-loss recovery through a controlled reboot to Wi-Fi;
+- Wi-Fi-to-preferred-Ethernet recovery after a 30-second stability timer;
+- persistent Thread dataset and network state across reboot/failover;
+- RGB boot and interface/status indications;
+- the standard upstream OpenThread Web UI;
+- forming and joining Thread networks and real Home Assistant/Matter operation.
 
-The two SoCs are connected with following interfaces:
-* UART and SPI for serial communication
-* RESET and BOOT pins for RCP Update
-* 3-Wires PTA for RF coexistence
+The selected backbone is authoritative for each boot. The firmware does not
+silently switch the active OpenThread backbone in response to a late interface
+event.
 
-This board is used as the default configuration for the [Basic Thread Border Router example](examples/basic_thread_border_router).
+## Installation
 
-## M5Stack Thread Border Router
+The intended public release format is one merged ESP32 image. When a release is
+published:
 
-The [M5Stack Thread Border Router](https://shop.m5stack.com/products/m5stack-thread-border-router) is a ready-to-use Thread Border Router solution built with the [M5Stack CoreS3](https://shop.m5stack.com/products/m5stack-cores3-esp32s3-lotdevelopment-kit) (ESP32-S3) and the [ESP32-H2 Thread/Zigbee Gateway Module](https://shop.m5stack.com/products/esp32-h2-thread-zigbee-gateway-module).
+1. Download the merged `.bin` image from GitHub Releases.
+2. Flash it at address `0x0` with `esptool`.
+3. Reboot the Dongle-M and provision or use it through the Web UI.
 
-![m5stack_thread_br](examples/m5stack_thread_border_router/images/M5Stack-Thread-Border-Router.png)
+No public release binary is currently included in this repository. Do not use a
+file from the repository as a release image unless it is explicitly published
+as a release asset.
 
-Key features of the M5Stack Thread Border Router:
-* **Touchscreen Interface**: The M5Stack CoreS3's built-in touchscreen enables intuitive interaction for Thread network management and credential sharing.
-* **Credential Sharing**: Supports the Thread 1.4 Credential Sharing feature, allowing secure retrieval and configuration of Thread network credentials via an ephemeral key (ePSKc).
-* **Wi-Fi Configuration**: On first boot, the device starts in SoftAP mode, providing a web-based Wi-Fi configuration interface.
+For recovery to the Sonoff firmware, use the [Sonoff Dongle
+Flasher](https://dongle.sonoff.tech/sonoff-dongle-flasher/) and follow Sonoff's
+instructions.
 
-This board is used as the default configuration for the [M5Stack Thread Border Router example](examples/m5stack_thread_border_router).
+### Developer multi-image flashing
 
-### Standalone Modules
+The validated development layout is:
 
-The SDK also supports manually connecting an IEEE802.15.4-capable DevKit (e.g. ESP32-H2) RCP to an ESP32 series DevKit. Communication between RCP and SoC can be achieved using either one out of two supported serial communication protocols: UART or SPI. Please refer to the [Standalone RCP Guide](examples/basic_thread_border_router/README_standalone_RCP.md) for detailed wiring instructions. Specific instructions for the ESP32-P4 can be found [here](examples/basic_thread_border_router/README_esp32p4.md).
+```text
+0x1000  bootloader.bin
+0x8000  partition-table.bin
+0xf000  ota_data_initial.bin
+0x20000 esp_ot_br.bin
+0x620000 web_storage.bin
+```
 
-Recommended main processor and RCP combinations:
+Use the exact `flash_args` generated by the matching build rather than relying
+on these offsets for another configuration. A typical developer command is:
 
-| Main Processor                                                    | RCP      | Use Case                                              |
-|-------------------------------------------------------------------|----------|-------------------------------------------------------|
-| [ESP32-P4](https://www.espressif.com/en/products/socs/esp32-p4)   | ESP32-C6 | High-performance applications with AI/ML capabilities |
-| [ESP32-C5](https://www.espressif.com/en/products/socs/esp32-c5)   | ESP32-H2 | Dual-band Wi-Fi (2.4 GHz + 5 GHz) support             |
-| [ESP32-C61](https://www.espressif.com/en/products/socs/esp32-c61) | ESP32-H2 | Wi-Fi 6 (802.11ax) support                            |
-| [ESP32-S3](https://www.espressif.com/en/products/socs/esp32-s3)   | ESP32-H2 | General-purpose with display/camera support           |
+```bash
+python -m esptool --chip esp32 --port <PORT> write-flash \
+  0x1000 build/bootloader/bootloader.bin \
+  0x8000 build/partition_table/partition-table.bin \
+  0xf000 build/ota_data_initial.bin \
+  0x20000 build/esp_ot_br.bin \
+  0x620000 build/web_storage.bin
+```
 
-For standalone modules, we recommend the [ot_br](https://github.com/espressif/esp-idf/tree/master/examples/openthread/ot_br) example in esp-idf as a quick start. For a more comprehensive set of features, the [Basic Thread Border Router example](examples/basic_thread_border_router) is also supported.
+The exact image names and flash parameters are build-specific. The project
+uses ESP-IDF v5.5.4; developers should follow the configuration in
+`examples/basic_thread_border_router` and the generated build arguments.
 
-# Provided Features
+## Using the Border Router
 
-These features are currently provided by the SDK:
+After connecting through Ethernet or Wi-Fi, open the device IP address in a
+browser. The upstream Web UI provides Thread network discovery, formation,
+joining, dataset management, network properties, and topology information.
 
-* **Bi-directional IPv6 Connectivity**: The devices on the backbone link (typically Wi-Fi or Ethernet) and the Thread network can reach each other.
-* **Service Discovery Delegate**: The devices on the Thread network can find the mDNS services on the backbone link.
-* **Service Registration Server**: The devices on the Thread network can register services to the BR for devices on the backbone link to discover.
-* **Multicast Forwarding**: The devices joining the same multicast group on the backbone link and the Thread network can be reached with one single multicast.
-* **NAT64**: The devices can access the IPv4 Internet via the BR.
-* **Credential Sharing**: The BR could safely share administrative access and allow extracting the network credentials of the network.
-* **TREL**: It enables Thread devices to communicate directly over IPv6-based links other than IEEE 802.15.4, including Wi-Fi and Ethernet.
-* **RCP Update**: The built BR image will contain an updatable RCP image and can automatically update the RCP on version mismatch or RCP failure.
-* **Web GUI**: The BR will enable a web server and provide some practical functions including Thread network discovery, network formation, status query and topology monitor.
-* **RF Coexistence**: The BR supports optional external coexistence, a feature that enhances the transmission performance when there are channel conflicts between the Wi-Fi and Thread networks.
+In Home Assistant:
 
-# Resources
+1. Add the OpenThread Border Router integration using
+   `http://<dongle-ip-address>`.
+2. Add the Thread integration and select the Dongle-M as the preferred Thread
+   network when appropriate.
 
-* Documentation for the latest version: https://docs.espressif.com/projects/esp-thread-br/. This documentation is built from the [docs directory](docs) of this repository.
+## Development
 
-* [Check the Issues section on github](https://github.com/espressif/esp-thread-br/issues) if you find a bug or have a feature request. Please check existing Issues before opening a new one.
+The current upstream baseline is recorded in
+[docs/sonoff-dongle-m-migration.md](docs/sonoff-dongle-m-migration.md), together
+with the ESP-IDF version, board decisions, build evidence, hardware
+observations, and deferred work. The migration intentionally keeps the
+Dongle-M changes small and isolated from generic upstream code.
 
-* If you're interested in contributing to ESP-THREAD-BR, please check the [Contributions Guide](https://docs.espressif.com/projects/esp-idf/en/latest/contribute/index.html).
+Build from the example directory with the ESP-IDF v5.5.4 environment enabled:
+
+```bash
+cd examples/basic_thread_border_router
+idf.py -B build-sonoff-dongle-m \
+  -D SDKCONFIG=sdkconfig.sonoff_dongle_m \
+  -D SDKCONFIG_DEFAULTS=sdkconfig.defaults.sonoff_dongle_m \
+  build
+```
+
+Generated build output and hardware-test bundles under `artifacts/` are local
+files and are intentionally not tracked in Git. Custom RCP firmware, bundled
+RCP updates, and automatic MG24 flashing remain future development.

@@ -78,8 +78,8 @@ The rebased hardware-test bundle is generated locally at
 ## Legacy delta classification
 
 - Hardware-required: classic ESP32 target, 16 MB flash, stock-MG24 UART, IP101GA RMII, RGB GPIOs, and MG24 control GPIO definitions. Reimplemented in this milestone.
-- Connectivity-required: Ethernet-first, saved-Wi-Fi fallback, bounded recovery SoftAP, NVS failure tracking, and deterministic per-boot backbone selection. Implemented in this milestone; hardware validation is pending.
-- Product behavior: RGB self-test, Ethernet/Wi-Fi/SoftAP base colors, and attached/detached Thread pulse policy. Implemented in this milestone; hardware validation is pending.
+- Connectivity-required: Ethernet-first, saved-Wi-Fi fallback, bounded recovery SoftAP, NVS failure tracking, and deterministic per-boot backbone selection. Implemented and hardware validated in this milestone.
+- Product behavior: RGB self-test, Ethernet/Wi-Fi/SoftAP base colors, and attached/detached Thread pulse policy. Implemented and hardware validated in this milestone.
 - Web UI/UX and dataset handling: deferred; no legacy frontend files were copied.
 - Diagnostic: RCP capability/version display. Deferred to Stage 2.
 - Obsolete/superseded: legacy hard-coded generic-file UART values and monolithic frontend architecture. Not ported.
@@ -144,9 +144,11 @@ was observed.
 
 The rebased build at source HEAD `ddc0ccef3f5dbf7b794bd5000d4a9d335cab845` was subsequently validated on real Sonoff Dongle-M hardware. The validation confirmed classic ESP32 boot, 16 MB DIO/40 MHz flash, the Dongle-M board profile, stock MG24 Spinel/OpenThread operation over UART1 GPIO13/GPIO17 at 115200 8N1 without flow control, supported `RX_ON_WHEN_IDLE` compatibility, Ethernet/DHCP/IPv6/mDNS, current upstream Web UI, NAT64, and restoration of saved Thread state. No panic, reboot loop, or RCP framing errors were observed.
 
-The corrected network/LED build is **PENDING HARDWARE VALIDATION**. The user must
-verify the Ethernet-first selection, Wi-Fi fallback, SoftAP recovery threshold,
-backbone lock, active-high RGB indications, and Thread pulse timing on a real Dongle-M.
+The corrected network/LED build was validated on real Dongle-M hardware. The
+validation covered Ethernet-first selection, saved-Wi-Fi fallback, bounded
+SoftAP recovery, backbone lock, active-high RGB indications, controlled
+Ethernet/Wi-Fi recovery reboot behavior, and Thread status timing. The stock
+MG24 remained the supported RCP baseline; no RCP firmware was updated.
 
 The stock-RCP baseline is now the known-good starting point for replacement MG24 RCP investigation. Hardware tests for replacement firmware remain **PENDING HARDWARE VALIDATION**.
 
@@ -266,13 +268,12 @@ It does not erase or replace the Thread dataset, Wi-Fi credentials, NVS failure
 history, partition layout, or MG24 firmware. Normal saved-dataset restoration
 and Thread reattachment are expected after boot.
 
-Hardware validation is **PENDING HARDWARE VALIDATION**. Validate Ethernet to
-Wi-Fi recovery after five seconds, cancellation on a sub-five-second transient,
-Wi-Fi to Ethernet recovery only after 30 stable seconds, cancellation during
-Ethernet flapping, no reboot when no saved Wi-Fi alternative exists, preserved
-LED meaning before and after reboot, restored Thread dataset/attachment, router
-device operation, and BILRESA delivery after each recovery path. Confirm there
-is no reboot loop, factory reset, RCP update, or new lock/watchdog/RCP error.
+Hardware validation was completed for Ethernet-to-Wi-Fi recovery after five
+seconds, cancellation on a sub-five-second transient, Wi-Fi-to-Ethernet recovery
+only after 30 stable seconds, cancellation during Ethernet flapping, no reboot
+when no saved Wi-Fi alternative exists, preserved LED meaning before and after
+reboot, restored Thread dataset/attachment, and router operation. No reboot
+loop, factory reset, RCP update, or new lock/watchdog/RCP error was observed.
 
 ## Current migration path
 
@@ -280,8 +281,8 @@ is no reboot loop, factory reset, RCP update, or new lock/watchdog/RCP error.
 2. **Stage 2 — Replacement EFR32MG24 OpenThread RCP investigation and A/B test:** **CURRENT**.
 3. **Stage 3 — BILRESA sleepy-end-device latency A/B test** using stock and replacement RCP firmware.
 4. **Stage 4 — Restore the normal upstream `RX_ON_WHEN_IDLE` requirement only if the replacement RCP genuinely advertises and supports it.**
-5. **Stage 5 — Restore Dongle-M Wi-Fi fallback and deterministic backbone selection using current upstream architecture:** **IMPLEMENTED; HARDWARE VALIDATION PENDING**.
-6. **Stage 6 — Restore Dongle-M LED status behaviour separately from networking policy:** **IMPLEMENTED; HARDWARE VALIDATION PENDING**.
+5. **Stage 5 — Restore Dongle-M Wi-Fi fallback and deterministic backbone selection using current upstream architecture:** **IMPLEMENTED; HARDWARE VALIDATED**.
+6. **Stage 6 — Restore Dongle-M LED status behaviour separately from networking policy:** **IMPLEMENTED; HARDWARE VALIDATED**.
 7. **Stage 7 — If proven successful, integrate the replacement RCP image and evaluate current upstream RCP update support.**
 
 The current upstream Web UI remains authoritative; the legacy Web UI is not being ported wholesale.
