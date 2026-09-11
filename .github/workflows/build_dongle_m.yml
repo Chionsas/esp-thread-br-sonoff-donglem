@@ -6,6 +6,11 @@ on:
     branches:
       - main
       - codex/donglem-network-led
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -48,15 +53,23 @@ jobs:
       - name: Show firmware checksums
         shell: bash
         run: |
-          ls -lh artifacts/sonoff-dongle-m-otbr-ci.bin*
-          cat artifacts/sonoff-dongle-m-otbr-ci.bin.sha256
+          ls -lh artifacts/*.bin artifacts/*.sha256
+          cat artifacts/*.sha256
 
       - name: Upload firmware artifacts
         uses: actions/upload-artifact@v4
         with:
           name: sonoff-dongle-m-firmware
           path: |
-            artifacts/sonoff-dongle-m-otbr-ci.bin
-            artifacts/sonoff-dongle-m-otbr-ci.bin.sha256
+            artifacts/*.bin
+            artifacts/*.sha256
           if-no-files-found: error
           retention-days: 14
+
+      - name: Create GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/*.bin
+            artifacts/*.sha256
