@@ -36,9 +36,14 @@ jobs:
         shell: bash
         run: |
           source /opt/esp/idf/export.sh
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            FIRMWARE_NAME="sonoff-dongle-m-otbr-${GITHUB_REF_NAME}.bin"
+          else
+            FIRMWARE_NAME="sonoff-dongle-m-otbr-ci.bin"
+          fi
           python3 tools/release/merge_dongle_m_image.py \
             examples/basic_thread_border_router/build-sonoff-dongle-m \
-            --output artifacts/sonoff-dongle-m-otbr-ci.bin
+            --output "artifacts/${FIRMWARE_NAME}"
 
       - name: Show firmware checksums
         shell: bash
