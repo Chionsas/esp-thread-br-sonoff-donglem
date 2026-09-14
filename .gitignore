@@ -70,3 +70,6 @@ docs/_build
 
 # Local hardware-test bundles
 /artifacts/
+
+# Local maintenance prompt
+LOCAL_UPSTREAM_SYNC_PROMPT.md
