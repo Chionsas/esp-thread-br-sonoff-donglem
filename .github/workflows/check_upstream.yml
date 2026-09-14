@@ -115,3 +115,10 @@ jobs:
 
           git merge --abort 2>/dev/null || true
           exit 0
+
+      - name: Flag new upstream commits
+        if: steps.compare.outputs.upstream_only != '0'
+        run: |
+          echo "::warning::New Espressif upstream commits are available."
+          echo "Review the merge-test result in the workflow summary."
+          exit 1
