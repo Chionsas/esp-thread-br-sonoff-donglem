@@ -1,0 +1,117 @@
+name: Check Espressif upstream
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 6 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  check-upstream:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Add Espressif upstream
+        run: |
+          git remote add upstream https://github.com/espressif/esp-thread-br.git
+          git fetch upstream main
+
+      - name: Compare with upstream
+        id: compare
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          COUNTS="$(git rev-list --left-right --count HEAD...upstream/main)"
+          LOCAL_ONLY="$(echo "$COUNTS" | awk '{print $1}')"
+          UPSTREAM_ONLY="$(echo "$COUNTS" | awk '{print $2}')"
+
+          echo "local_only=$LOCAL_ONLY" >> "$GITHUB_OUTPUT"
+          echo "upstream_only=$UPSTREAM_ONLY" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "## Espressif upstream check"
+            echo
+            echo "- Local-only commits: **$LOCAL_ONLY**"
+            echo "- New upstream commits: **$UPSTREAM_ONLY**"
+            echo "- Local HEAD: \`$(git rev-parse HEAD)\`"
+            echo "- Upstream HEAD: \`$(git rev-parse upstream/main)\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Report up to date
+        if: steps.compare.outputs.upstream_only == '0'
+        run: |
+          echo "No new Espressif upstream commits."
+          echo >> "$GITHUB_STEP_SUMMARY"
+          echo "✅ Repository already contains the current Espressif \`upstream/main\`." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Test incremental merge
+        if: steps.compare.outputs.upstream_only != '0'
+        shell: bash
+        run: |
+          set +e
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git switch -c upstream-merge-test
+
+          git merge --no-commit --no-ff upstream/main
+          RESULT=$?
+
+          if [ "$RESULT" -eq 0 ]; then
+            echo "Incremental merge completed cleanly."
+
+            CHANGED_FILES="$(git diff --cached --name-only)"
+
+            {
+              echo
+              echo "### Merge test"
+              echo
+              echo "✅ **Incremental merge is possible without conflicts.**"
+              echo
+              echo "Changed files:"
+              echo
+              echo '```text'
+              if [ -n "$CHANGED_FILES" ]; then
+                echo "$CHANGED_FILES"
+              else
+                echo "(none)"
+              fi
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+
+            git merge --abort 2>/dev/null || true
+            exit 0
+          fi
+
+          echo "Incremental merge has conflicts."
+
+          CONFLICTS="$(git diff --name-only --diff-filter=U)"
+
+          {
+            echo
+            echo "### Merge test"
+            echo
+            echo "⚠️ **Incremental merge requires manual conflict resolution.**"
+            echo
+            echo "Conflicting files:"
+            echo
+            echo '```text'
+            if [ -n "$CONFLICTS" ]; then
+              echo "$CONFLICTS"
+            else
+              echo "(merge failed, but no unresolved paths were reported)"
+            fi
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          git merge --abort 2>/dev/null || true
+          exit 0
