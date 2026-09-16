@@ -32,6 +32,14 @@ CONFIG_OPENTHREAD_RX_ON_WHEN_IDLE=n
 CONFIG_OPENTHREAD_TASK_SIZE=8192
 CONFIG_OPENTHREAD_RCP_COMMAND=y
 CONFIG_OPENTHREAD_CLI_OTA=y
+
+# The stock EFR32MG24 RCP image transmits at 0 dBm: mesh nodes hear this border
+# router 15-25 dB weaker than they hear each other. 20 dBm is the MG24's maximum
+# per Sonoff's hardware spec. Note the stock antenna is 3 dBi, putting this near
+# 23 dBm EIRP against a 20 dBm EIRP regulatory ceiling in the EU -- 17 dBm is the
+# compliant setting if that matters for your deployment.
+CONFIG_ESP_BR_SET_RADIO_TX_POWER=y
+CONFIG_ESP_BR_RADIO_TX_POWER_DBM=20
 CONFIG_AUTO_UPDATE_RCP=n
 
 # Dongle-M startup policy: Ethernet first, then saved Wi-Fi, then current

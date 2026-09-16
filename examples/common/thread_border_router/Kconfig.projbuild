@@ -101,6 +101,26 @@ menu "ESP Thread Border Router Example"
             default 460800
             depends on OPENTHREAD_RADIO_SPINEL_UART
 
+        config ESP_BR_SET_RADIO_TX_POWER
+            bool "Apply a radio transmit power at startup"
+            default n
+            help
+                Request an 802.15.4 transmit power from the RCP once the Thread
+                stack is running. Off by default, leaving whatever the RCP
+                firmware itself defaults to.
+
+        config ESP_BR_RADIO_TX_POWER_DBM
+            int "Radio transmit power (dBm)"
+            default 18
+            range -20 20
+            depends on ESP_BR_SET_RADIO_TX_POWER
+            help
+                OpenThread does not persist transmit power, so it is re-applied
+                on every boot. The RCP may clamp the request to its own power
+                table: read the applied value back as "RCP:TxPower" from
+                /get_properties. In the EU the ceiling is 20 dBm EIRP including
+                antenna gain, so leave headroom for the antenna.
+
         if ESP_BR_BOARD_SONOFF_DONGLE_M
             config ESP_BR_DONGLE_M_ETHERNET_WAIT_MS
                 int "Dongle-M Ethernet startup wait (ms)"

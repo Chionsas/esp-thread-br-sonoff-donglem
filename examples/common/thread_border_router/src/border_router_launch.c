@@ -187,6 +187,20 @@ static void ot_br_init(void *ctx)
         ESP_LOGI(TAG, "Created new random Thread dataset");
     }
     ESP_ERROR_CHECK(esp_openthread_auto_start(&dataset));
+#if CONFIG_ESP_BR_SET_RADIO_TX_POWER
+    // The stock Sonoff EFR32MG24 RCP comes up at 0 dBm, which the mesh hears far
+    // weaker than device-to-device links, and OpenThread does not persist this
+    // setting -- so request it on every boot. The RCP may clamp the request to
+    // its own power table; RCP:TxPower in /get_properties reports what took.
+    otError tx_power_error =
+        otPlatRadioSetTransmitPower(esp_openthread_get_instance(), CONFIG_ESP_BR_RADIO_TX_POWER_DBM);
+    if (tx_power_error != OT_ERROR_NONE) {
+        ESP_LOGW(TAG, "Failed to request %d dBm transmit power: %d", CONFIG_ESP_BR_RADIO_TX_POWER_DBM,
+                 tx_power_error);
+    } else {
+        ESP_LOGI(TAG, "Requested %d dBm transmit power", CONFIG_ESP_BR_RADIO_TX_POWER_DBM);
+    }
+#endif
 #if CONFIG_ESP_BR_BOARD_SONOFF_DONGLE_M
     dongle_m_led_set_thread_ready(true);
 #endif
